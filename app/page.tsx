@@ -1,65 +1,119 @@
-import Image from "next/image";
+'use client';
+import { useState } from "react";
+import jsSHA from "jssha";
 
 export default function Home() {
+  const [listToken, setListToken] = useState("");
+  const [output, setOutput] = useState("");
+
+  // Thêm log
+  const addLogs = (txt: string) => {
+    setOutput((prev) => (prev ? prev + "\n" + txt : txt));
+  };
+
+  // Xóa log
+  const cleanLogs = () => setOutput("");
+
+  // --- Sinh TOTP ---
+  const generateTOTP = (secret: string) => {
+    const shaObj = new jsSHA("SHA-1", "BYTES");
+    const epoch = Math.floor(new Date().getTime() / 1000.0);
+    let time = Math.floor(epoch / 30);
+
+    const timeBytes = [];
+    for (let i = 7; i >= 0; i--) {
+      timeBytes[i] = time & 0xff;
+      time >>= 8;
+    }
+
+    const base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = "";
+    secret = secret.replace(/=+$/, "").toUpperCase();
+    for (let i = 0; i < secret.length; i++) {
+      const val = base32chars.indexOf(secret.charAt(i));
+      bits += val.toString(2).padStart(5, "0");
+    }
+
+    const keyBytes = [];
+    for (let i = 0; i + 8 <= bits.length; i += 8) {
+      keyBytes.push(parseInt(bits.substr(i, 8), 2));
+    }
+
+    const keyStr = String.fromCharCode.apply(null, keyBytes);
+    shaObj.setHMACKey(keyStr, "BYTES");
+    shaObj.update(String.fromCharCode.apply(null, timeBytes));
+    const hmac = shaObj.getHMAC("BYTES");
+
+    const offset = hmac.charCodeAt(hmac.length - 1) & 0xf;
+    let code =
+      ((hmac.charCodeAt(offset) & 0x7f) << 24) |
+      ((hmac.charCodeAt(offset + 1) & 0xff) << 16) |
+      ((hmac.charCodeAt(offset + 2) & 0xff) << 8) |
+      (hmac.charCodeAt(offset + 3) & 0xff);
+
+    code = code % 1000000;
+    return code.toString().padStart(6, "0");
+  };
+
+  // Khi bấm "Generate Code"
+  const handleGenerate = () => {
+    cleanLogs();
+    const secrets = listToken.trim().split("\n");
+    secrets.forEach((secret) => {
+      if (secret.trim()) {
+        const code = generateTOTP(secret.replace(/\s/g, ""));
+        addLogs(`${secret}|${code}`);
+      }
+    });
+  };
+
+  // Copy toàn bộ
+  const copyAll = () => {
+    if (!output.trim()) return alert("No content to copy.");
+    navigator.clipboard.writeText(output);
+  };
+
+  // Copy chỉ mã 2FA
+  const copyCodes = () => {
+    const lines = output.trim().split("\n");
+    const codes = lines.map((l) => l.split("|").pop()).join("\n");
+    if (!codes.trim()) return alert("No 2FA codes to copy.");
+    navigator.clipboard.writeText(codes);
+  };
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <div className="">
+        <header>
+          <h2>🔐 2FA Authenticator</h2>
+          <p>Generate 2FA codes easily — store your secret safely</p>
+        </header>
+
+        <div className="container" style={{ maxWidth: '700px', marginTop: '40px' }}>
+          <div className="mb-3" style={{ marginBottom: '20px' }}>
+            <label htmlFor="listToken" className="form-label"><b>* 2FA Secret</b></label>
+            <textarea className="form-control" id="listToken" placeholder="BK5VTWQ7D2RB..." rows={5} value={listToken} onChange={(e) => setListToken(e.target.value)}></textarea>
+          </div>
+
+          <div className="mb-3" style={{ marginBottom: '20px' }}>
+            <button className="btn btn-primary" id="submit" onClick={handleGenerate}>Generate Code</button>
+          </div>
+
+          <div className="mb-3" style={{ marginBottom: '20px' }}>
+            <label htmlFor="output" className="form-label"><b>* 2FA Code</b></label>
+            <textarea className="form-control" id="output" placeholder="ABC|2FA Code" rows={5} readOnly value={output}></textarea>
+          </div>
+
+          <div className="copy-buttons-container">
+            <button className="btn btn-success" id="copy_btn" onClick={copyAll}>Copy All</button>
+            <button className="btn btn-info" id="copy_2fa_btn" onClick={copyCodes}>Copy Codes</button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        <footer>
+          <p>© 2025 2FA Auth Tool — Made with ❤️</p>
+        </footer>
+      </div>
+    </>
+
   );
 }
